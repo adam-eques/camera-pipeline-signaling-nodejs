@@ -8,11 +8,13 @@ Signaling server for camera pipeline in typescript
 
 ## Install Nodejs
 - Windows
+
 You can download the installer here
 
 https://nodejs.org/en/download
 
 - Ubuntu
+
 You can follow this instruction to install on Ubuntu
 
 https://www.digitalocean.com/community/tutorials/how-to-install-node-js-on-ubuntu-22-04
