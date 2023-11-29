@@ -7,12 +7,14 @@ import { WSType, WsMsg } from "./types";
 
 const wsServer = new WebSocketServer({ port: 8080 });
 
-let vsReceiver: WebSocket | undefined = undefined;
+interface VSReceiver {
+  websocket: WebSocket,
+  id: string,
+}
+
+let vsReceivers: VSReceiver[] = [];
 
 let vsSender: WebSocket | undefined = undefined;
-
-let receverSDP: string = ""
-let senderSDP: string = ""
 
 wsServer.on('connection', (ws: WebSocket) => {
   
@@ -26,11 +28,12 @@ wsServer.on('connection', (ws: WebSocket) => {
       vsSender = undefined
       console.log("stream sender was disconnected")
     }
-    if (vsReceiver === ws) {
-      vsReceiver = undefined
-      console.log("stream receiver was disconnected")
-      receverSDP = ""
-    }
+    vsReceivers.forEach(vsReceiver => {      
+      if (vsReceiver.websocket === ws) {
+        vsReceivers = vsReceivers.filter((vsReceiver) => vsReceiver.websocket !== ws)
+        console.log("stream receiver was disconnected")
+      }
+    });
   })
   
   ws.on('message', (msg: RawData) => {
@@ -45,11 +48,6 @@ wsServer.on('connection', (ws: WebSocket) => {
           case WSType.CONNECTED:
             if (vsSender === undefined) {
               vsSender = ws
-              if (vsReceiver !== undefined && receverSDP !== "") {
-                sendWsMsg(vsSender, { WSType: WSType.SDP, SDP: receverSDP })
-                console.log("sent SDP to vsSender")
-                receverSDP = ""
-              }
             } else  {
               sendWsMsg(ws, newWsMsg({WSType: WSType.CONNECTED, Data: "double streamer"}))
             }
@@ -57,13 +55,13 @@ wsServer.on('connection', (ws: WebSocket) => {
           case WSType.SDP:
             console.log("Sender SDP received", data.SDP) 
             // Check if video stream receiver was registered
+            const id = data.ID || ""
+            const vsReceiver = vsReceivers.find((v) => v.id === id)
             if (vsReceiver === undefined) {
-              // Save video stream sender's SDP
-              senderSDP = data.SDP || ""
+              console.log("requested receiver was disconnected", id)
             } else {
               // Send video stream sender's SDP to receiver immediately
-              sendWsMsg(vsReceiver, { WSType: WSType.SDP, SDP: data.SDP })
-              senderSDP = ""
+              sendWsMsg(vsReceiver.websocket, { WSType: WSType.SDP, SDP: data.SDP })
               console.log("sent SDP to vsReceiver immediately", data.SDP)
             }
             break
@@ -72,9 +70,15 @@ wsServer.on('connection', (ws: WebSocket) => {
       } else {
         switch (data.WSType) {
           case WSType.CONNECTED:
-            // Check if vsReceiver was already registered
-            if (vsReceiver === undefined) {
-              vsReceiver = ws
+            // Check if vsSender was already registered
+            const tmp = vsReceivers.find((v) => v.websocket === ws)
+            if (tmp === undefined) {
+              vsReceivers.push({
+                websocket: ws,
+                id: genID(),
+              })
+            }
+            if (vsSender !== undefined) {
               sendWsMsg(ws, {WSType: WSType.CONNECTED, Data: "available"})
             } else {
               sendWsMsg(ws, {WSType: WSType.CONNECTED, Data: "not available"})
@@ -84,11 +88,25 @@ wsServer.on('connection', (ws: WebSocket) => {
           case WSType.SDP:
             console.log("Receiver SDP received", data.SDP)
             if (vsSender === undefined) {
-              receverSDP = data.SDP || ""
+              sendWsMsg(ws, {WSType: WSType.CONNECTED, Data: "not available"})
             } else {
-              sendWsMsg(vsSender, { WSType: WSType.SDP, SDP: data.SDP })
-              console.log("sent SDP to vsSender", receverSDP)
-              receverSDP = ""
+              var vsReceiver: VSReceiver | undefined
+              vsReceiver = vsReceivers.find((v) => v.websocket === ws)
+              if (vsReceiver === undefined) {
+                console.log("requested receiver was disconnected",)
+                vsReceiver = {
+                  websocket: ws,
+                  id: genID()
+                }
+                vsReceivers.push(vsReceiver)
+              }
+
+              sendWsMsg(vsSender, {
+                WSType: WSType.SDP,
+                SDP: data.SDP,
+                ID: vsReceiver.id
+              })
+              console.log("SDP was to vsSender from ", vsReceiver.id)
             }
             break
           default:
@@ -102,6 +120,12 @@ wsServer.on('connection', (ws: WebSocket) => {
   })
 
 })
+
+const genID = (): string => {
+  const now = new Date();
+  const utcString = now.toISOString();
+  return utcString;
+}
 
 const newWsMsg = ({
   Sender,

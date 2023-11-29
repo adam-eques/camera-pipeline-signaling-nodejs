@@ -4,7 +4,8 @@ export interface WsMsg {
   SDP?: string,
   ICE?: RTCIceCandidateInit,
   Answer?: string,
-  Data?: string
+  Data?: string,
+  ID?: string,
 }
 
 export const WSType = {
